@@ -1,0 +1,54 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Switch NRO (make)",
+            "type": "shell",
+            "command": "export DEVKITPRO=/opt/devkitpro && export PATH=$DEVKITPRO/tools/bin:$DEVKITPRO/devkitA64/bin:$PATH && make -j$(sysctl -n hw.ncpu)",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Run on PC / Mac (make run-pc)",
+            "type": "shell",
+            "command": "make run-pc",
+            "group": "test",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build for PC / Mac (make pc)",
+            "type": "shell",
+            "command": "make pc",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Clean Build (make clean)",
+            "type": "shell",
+            "command": "export DEVKITPRO=/opt/devkitpro && export PATH=$DEVKITPRO/tools/bin:$DEVKITPRO/devkitA64/bin:$PATH && make clean",
+            "problemMatcher": []
+        },
+        {
+            "label": "Rebuild Switch NRO",
+            "type": "shell",
+            "command": "export DEVKITPRO=/opt/devkitpro && export PATH=$DEVKITPRO/tools/bin:$DEVKITPRO/devkitA64/bin:$PATH && make clean && make -j$(sysctl -n hw.ncpu)",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Send NRO to Switch (nxlink)",
+            "type": "shell",
+            "command": "export DEVKITPRO=/opt/devkitpro && export PATH=$DEVKITPRO/tools/bin:$DEVKITPRO/devkitA64/bin:$PATH && nxlink -a ${input:switchIp} NX-RaptureReader.nro",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "switchIp",
+            "type": "promptString",
+            "description": "Enter your Nintendo Switch local IP address (shown in hbmenu / System Settings)",
+            "default": "192.168.1."
+        }
+    ]
+}
