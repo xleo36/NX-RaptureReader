@@ -19,19 +19,48 @@ struct WindowConfig {
 
 class WindowWrapper {
   SDL_Window *window = nullptr;
+  WindowConfig cfg;
 
 public:
-  optional<string> create(const WindowConfig &cfg) {
+  WindowWrapper() = default;
+
+  ~WindowWrapper() {
+    if (window) {
+      SDL_DestroyWindow(window);
+    }
+  }
+
+  WindowWrapper(const WindowWrapper &) = delete;
+  WindowWrapper &operator=(const WindowWrapper &) = delete;
+
+  WindowWrapper(WindowWrapper &&other) noexcept
+      : window(other.window), cfg(other.cfg) {
+    other.window = nullptr;
+  }
+
+  WindowWrapper &operator=(WindowWrapper &&other) noexcept {
+    if (this != &other) {
+      if (window) {
+        SDL_DestroyWindow(window);
+      }
+      window = other.window;
+      cfg = other.cfg;
+      other.window = nullptr;
+    }
+    return *this;
+  }
+
+  optional<string> create(const WindowConfig &config) {
+    cfg = config;
     window = SDL_CreateWindow(cfg.title, cfg.x, cfg.y, cfg.w, cfg.h, cfg.flags);
     if (!window) {
       return string("window wrapper: creating SDL window: ") + SDL_GetError();
     }
     return nullopt;
   }
-  ~WindowWrapper() {
-    if (window) {
-      SDL_DestroyWindow(window);
-    }
-  }
+
   SDL_Window *get() const { return window; }
+  int getWidth() const { return cfg.w; }
+  int getHeight() const { return cfg.h; }
+  const WindowConfig &getConfig() const { return cfg; }
 };

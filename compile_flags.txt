@@ -1,0 +1,5 @@
+-std=c++17
+-Iinclude
+-Isource
+-I/opt/homebrew/include
+-I/opt/homebrew/include/SDL2
