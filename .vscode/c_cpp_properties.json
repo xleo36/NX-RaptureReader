@@ -1,0 +1,39 @@
+{
+    "configurations": [
+        {
+            "name": "Mac (Local Dev)",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/source",
+                "/opt/homebrew/include",
+                "/opt/homebrew/include/SDL2"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-arm64",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+        },
+        {
+            "name": "Nintendo Switch (devkitA64)",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/source",
+                "/opt/devkitpro/libnx/include",
+                "/opt/devkitpro/portlibs/switch/include",
+                "/opt/devkitpro/portlibs/switch/include/SDL2",
+                "/opt/devkitpro/devkitA64/aarch64-none-elf/include"
+            ],
+            "defines": [
+                "__SWITCH__=1",
+                "SWITCH=1"
+            ],
+            "compilerPath": "/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "gcc-arm64"
+        }
+    ],
+    "version": 4
+}
