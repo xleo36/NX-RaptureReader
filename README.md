@@ -46,7 +46,7 @@ A lightweight, OLED-native e-book, manga, comic, and PDF reader written in C++17
 
 ### PC / macOS
 
-Requires `SDL2`, `FreeType2`, `zlib`, and `libwebp` (`brew install sdl2 freetype zlib webp` on macOS).
+Requires `SDL2`, `FreeType2`, `zlib`, and `libwebp` (`brew install sdl2 freetype zlib webp` on macOS; `sudo apt install build-essential pkg-config libsdl2-dev libfreetype-dev zlib1g-dev libwebp-dev` on Debian/Ubuntu).
 
 ```bash
 make test   # Compile with -Wall -Wextra and run unit tests
@@ -65,3 +65,11 @@ make nxlink SWITCH_IP=192.168.x.x  # Push over Wi-Fi to Homebrew Menu NetLoader
 ```
 
 Copy `build/NX-RaptureReader.nro` to `sdmc:/switch/NX-RaptureReader/NX-RaptureReader.nro` and place your `.epub`, `.cbz`, or `.pdf` files in `sdmc:/switch/NX-RaptureReader/books/`.
+
+## License
+
+Copyright (C) 2026 xleo36
+
+`NX-RaptureReader` is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (`AGPL-3.0-or-later`). See [LICENSE](LICENSE) for the full license text.
+
+Official Nintendo Switch `.nro` builds statically link `switch-mupdf` (GNU AGPL-3.0). See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for third-party library, font (Lato under SIL OFL 1.1), and bundled code (`stb_image.h`) notices.

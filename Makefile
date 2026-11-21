@@ -1,4 +1,4 @@
-CXX = clang++
+CXX ?= c++
 PKG_CFLAGS := $(shell pkg-config --cflags sdl2 freetype2 zlib libwebp)
 PKG_LIBS := $(shell pkg-config --libs sdl2 freetype2 zlib libwebp)
 
