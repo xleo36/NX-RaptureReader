@@ -15,6 +15,7 @@
 #include <SDL.h>
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -349,7 +350,17 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
-  auto err = run(*config, cliPaths);
+  // Last line of defence: a throw from a parser or allocator must unwind the
+  // RAII objects in run() (wake-lock, GPU textures, SDL) and exit cleanly.
+  // Reading progress is saved as pages turn, so nothing is lost.
+  std::optional<std::string> err;
+  try {
+    err = run(*config, cliPaths);
+  } catch (const std::exception &e) {
+    err = std::string("Unhandled exception: ") + e.what();
+  } catch (...) {
+    err = "Unhandled unknown exception";
+  }
   if (err) {
     std::cerr << "Error: " << *err << '\n';
   }

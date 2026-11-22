@@ -1,6 +1,8 @@
 #include "zip_reader.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <zlib.h>
 
 namespace zip_util {
@@ -21,9 +23,31 @@ uint64_t readU64(const uint8_t *p) {
          (static_cast<uint64_t>(readU32(p + 4)) << 32);
 }
 
+/// True when [offset, offset + length) lies inside [0, total). Written so that
+/// hostile 64-bit values cannot wrap around.
+bool rangeWithin(uint64_t offset, uint64_t length, uint64_t total) {
+  return offset <= total && length <= total - offset;
+}
+
+// A deflate stream cannot expand by more than ~1032:1, so a header claiming
+// more than that is lying and must not drive a large up-front allocation.
+constexpr uint64_t MAX_DEFLATE_RATIO = 1032;
+
+/// Inflates a raw deflate stream that must produce exactly `expectedLen`
+/// bytes. Output is capped at `expectedLen` while inflating, so a zip bomb
+/// whose real size exceeds its header is rejected instead of exhausting RAM.
 template <typename Buffer>
 bool inflateRaw(const uint8_t *src, uint64_t srcLen, uint64_t expectedLen,
                 Buffer &out, std::string &err) {
+  out.clear();
+  if (srcLen == 0 && expectedLen == 0) {
+    return true;
+  }
+  if (srcLen > std::numeric_limits<uInt>::max()) {
+    err = "ZIP entry too large to inflate";
+    return false;
+  }
+
   z_stream zs{};
   if (inflateInit2(&zs, -MAX_WBITS) != Z_OK) {
     err = "zlib inflateInit2 failed";
@@ -32,26 +56,35 @@ bool inflateRaw(const uint8_t *src, uint64_t srcLen, uint64_t expectedLen,
   zs.next_in = const_cast<Bytef *>(reinterpret_cast<const Bytef *>(src));
   zs.avail_in = static_cast<uInt>(srcLen);
 
-  out.clear();
-  out.reserve(static_cast<std::size_t>(expectedLen > 0 ? expectedLen
-                                                       : srcLen * 2));
+  out.reserve(static_cast<std::size_t>(
+      std::min(expectedLen, srcLen * MAX_DEFLATE_RATIO + 64)));
 
   uint8_t buf[16384];
   int ret = Z_OK;
   do {
     zs.next_out = buf;
     zs.avail_out = sizeof(buf);
-    ret = inflate(&zs, 0);
+    ret = inflate(&zs, Z_NO_FLUSH);
     if (ret != Z_OK && ret != Z_STREAM_END) {
       inflateEnd(&zs);
-      err = "zlib inflate error";
+      err = "zlib inflate error (corrupt or truncated data)";
       return false;
     }
-    std::size_t produced = sizeof(buf) - zs.avail_out;
+    const std::size_t produced = sizeof(buf) - zs.avail_out;
+    // Invariant: out.size() <= expectedLen, so the subtraction cannot wrap.
+    if (produced > expectedLen - out.size()) {
+      inflateEnd(&zs);
+      err = "ZIP entry expands beyond its declared size";
+      return false;
+    }
     out.insert(out.end(), buf, buf + produced);
   } while (ret != Z_STREAM_END);
 
   inflateEnd(&zs);
+  if (out.size() != expectedLen) {
+    err = "ZIP entry is smaller than its declared size";
+    return false;
+  }
   return true;
 }
 
@@ -60,6 +93,10 @@ bool decodePayload(uint16_t method, uint64_t uncompressedSize,
                    const std::vector<uint8_t> &compressed,
                    const std::string &name, Buffer &out, std::string &err) {
   if (method == 0) {
+    if (compressed.size() != uncompressedSize) {
+      err = "Corrupt stored ZIP entry '" + name + "' (size mismatch)";
+      return false;
+    }
     out.assign(compressed.begin(), compressed.end());
     return true;
   }
@@ -75,6 +112,7 @@ bool decodePayload(uint16_t method, uint64_t uncompressedSize,
 
 bool ZipReader::open(const std::string &path, std::string &err) {
   path_.clear();
+  fileSize_ = 0;
   stream_.close();
   stream_.clear();
   entryOrder_.clear();
@@ -96,6 +134,7 @@ bool ZipReader::open(const std::string &path, std::string &err) {
     return false;
   }
   path_ = path;
+  fileSize_ = fileSize;
   return true;
 }
 
@@ -142,7 +181,7 @@ bool ZipReader::parseCentralDirectory(uint64_t fileSize, std::string &err) {
        cdOffset == 0xFFFFFFFFu) &&
       eocd >= 20 && readU32(tail.data() + eocd - 20) == 0x07064b50u) {
     uint64_t eocd64Off = readU64(tail.data() + eocd - 20 + 8);
-    if (eocd64Off + 56 > fileSize) {
+    if (!rangeWithin(eocd64Off, 56, fileSize)) {
       err = "Invalid ZIP64 EOCD offset";
       return false;
     }
@@ -159,7 +198,7 @@ bool ZipReader::parseCentralDirectory(uint64_t fileSize, std::string &err) {
     cdOffset = readU64(eocd64 + 48);
   }
 
-  if (cdOffset + cdSize > fileSize) {
+  if (!rangeWithin(cdOffset, cdSize, fileSize)) {
     err = "Invalid ZIP archive: central directory out of range";
     return false;
   }
@@ -250,6 +289,13 @@ bool ZipReader::readCompressedEntry(const std::string &name, ZipEntry &meta,
   }
   meta = it->second;
 
+  // Validate header-declared sizes before they drive any allocation.
+  if (meta.compressedSize > MAX_ENTRY_BYTES ||
+      meta.uncompressedSize > MAX_ENTRY_BYTES) {
+    err = "ZIP entry '" + name + "' is too large";
+    return false;
+  }
+
   if (!stream_.is_open()) {
     stream_.clear();
     stream_.open(path_, std::ios::binary);
@@ -257,6 +303,10 @@ bool ZipReader::readCompressedEntry(const std::string &name, ZipEntry &meta,
       err = "Cannot reopen " + path_;
       return false;
     }
+  }
+  if (!rangeWithin(meta.localHeaderOffset, 30, fileSize_)) {
+    err = "Corrupt ZIP local header for '" + name + "'";
+    return false;
   }
   uint8_t lh[30];
   stream_.clear();
@@ -273,7 +323,12 @@ bool ZipReader::readCompressedEntry(const std::string &name, ZipEntry &meta,
 
   uint16_t nameLen = readU16(lh + 26);
   uint16_t extraLen = readU16(lh + 28);
+  // localHeaderOffset <= fileSize_ was checked above, so this cannot wrap.
   uint64_t payloadOffset = meta.localHeaderOffset + 30 + nameLen + extraLen;
+  if (!rangeWithin(payloadOffset, meta.compressedSize, fileSize_)) {
+    err = "Truncated ZIP payload for '" + name + "'";
+    return false;
+  }
   compressed.resize(static_cast<std::size_t>(meta.compressedSize));
   if (meta.compressedSize > 0) {
     stream_.clear();

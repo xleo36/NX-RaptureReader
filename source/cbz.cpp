@@ -17,7 +17,8 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-
+#include <new>
+#include <string>
 namespace fs = std::filesystem;
 
 namespace cbz {
@@ -272,6 +273,41 @@ bool naturalLess(const std::string &a, const std::string &b) {
   return a < b;
 }
 
+namespace {
+
+bool dimensionsAcceptable(int w, int h, std::string &err) {
+  if (w <= 0 || h <= 0) {
+    err = "Image has invalid dimensions";
+    return false;
+  }
+  if (static_cast<uint64_t>(w) * static_cast<uint64_t>(h) > MAX_IMAGE_PIXELS) {
+    err = "Image is too large (" + std::to_string(w) + "x" +
+          std::to_string(h) + " px)";
+    return false;
+  }
+  return true;
+}
+
+/// Copies decoder output into `out`, reporting allocation failure as an
+/// error instead of letting std::bad_alloc escape.
+bool copyPixels(const uint8_t *pixels, int w, int h, DecodedImage &out,
+                std::string &err) {
+  const std::size_t byteCount =
+      static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
+  try {
+    out.rgba.assign(pixels, pixels + byteCount);
+  } catch (const std::bad_alloc &) {
+    out = DecodedImage{};
+    err = "Out of memory while decoding image";
+    return false;
+  }
+  out.width = w;
+  out.height = h;
+  return true;
+}
+
+} // namespace
+
 bool decodeImageBytes(const uint8_t *data, std::size_t size, DecodedImage &out,
                       std::string &err) {
   out = DecodedImage{};
@@ -285,6 +321,14 @@ bool decodeImageBytes(const uint8_t *data, std::size_t size, DecodedImage &out,
       std::memcmp(data + 8, "WEBP", 4) == 0) {
     int w = 0;
     int h = 0;
+    // Read the header first so oversized images never reach the decoder.
+    if (!WebPGetInfo(data, size, &w, &h)) {
+      err = "WebP decode failed";
+      return false;
+    }
+    if (!dimensionsAcceptable(w, h, err)) {
+      return false;
+    }
     uint8_t *pixels = WebPDecodeRGBA(data, size, &w, &h);
     if (!pixels || w <= 0 || h <= 0) {
       if (pixels) {
@@ -293,18 +337,20 @@ bool decodeImageBytes(const uint8_t *data, std::size_t size, DecodedImage &out,
       err = "WebP decode failed";
       return false;
     }
-    std::size_t byteCount =
-        static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
-    out.width = w;
-    out.height = h;
-    out.rgba.assign(pixels, pixels + byteCount);
+    bool ok = copyPixels(pixels, w, h, out, err);
     WebPFree(pixels);
-    return true;
+    return ok;
   }
 
   int w = 0;
   int h = 0;
   int channels = 0;
+  // Header-only probe: fails for unsupported/corrupt data, in which case the
+  // full load below reports stb's failure reason.
+  if (stbi_info_from_memory(data, static_cast<int>(size), &w, &h, &channels) &&
+      !dimensionsAcceptable(w, h, err)) {
+    return false;
+  }
   stbi_uc *pixels =
       stbi_load_from_memory(data, static_cast<int>(size), &w, &h, &channels, 4);
   if (!pixels || w <= 0 || h <= 0) {
@@ -317,13 +363,9 @@ bool decodeImageBytes(const uint8_t *data, std::size_t size, DecodedImage &out,
     return false;
   }
 
-  std::size_t byteCount =
-      static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
-  out.width = w;
-  out.height = h;
-  out.rgba.assign(pixels, pixels + byteCount);
+  bool ok = copyPixels(pixels, w, h, out, err);
   stbi_image_free(pixels);
-  return true;
+  return ok;
 }
 
 DecodedImage downsampleRgba(const DecodedImage &src, int maxW, int maxH) {
@@ -559,11 +601,17 @@ bool ComicReader::decodePage(std::size_t idx, DecodedImage &out,
     err = "Page index out of range";
     return false;
   }
-  std::vector<uint8_t> encoded;
-  if (!zip_.readEntryBytes(pages_[idx], encoded, err)) {
+  try {
+    std::vector<uint8_t> encoded;
+    if (!zip_.readEntryBytes(pages_[idx], encoded, err)) {
+      return false;
+    }
+    return decodeImageBytes(encoded.data(), encoded.size(), out, err);
+  } catch (const std::bad_alloc &) {
+    out = DecodedImage{};
+    err = "Out of memory while decoding page";
     return false;
   }
-  return decodeImageBytes(encoded.data(), encoded.size(), out, err);
 }
 
 } // namespace cbz

@@ -11,8 +11,19 @@ namespace zip_util {
 /// Streaming ZIP archive reader: parses only the central directory on open()
 /// and reads/inflates individual entries on demand without buffering the whole
 /// archive in RAM.
+///
+/// Archives are untrusted input, so every size and offset in the headers is
+/// validated against the real file size before it drives an allocation or a
+/// seek, and entries must inflate to exactly their declared size and no more
+/// than `MAX_ENTRY_BYTES`.
+///
+/// Not thread-safe: reads share one file stream (hence `mutable` + `const`
+/// accessors). Use one ZipReader per thread.
 class ZipReader {
 public:
+  /// Upper bound on the compressed and uncompressed size of a single entry.
+  static constexpr uint64_t MAX_ENTRY_BYTES = 256ull * 1024 * 1024;
+
   bool open(const std::string &path, std::string &err);
 
   const std::vector<std::string> &entries() const { return entryOrder_; }
@@ -36,6 +47,7 @@ private:
                            std::string &err) const;
 
   std::string path_;
+  uint64_t fileSize_ = 0;
   mutable std::ifstream stream_;
   std::vector<std::string> entryOrder_;
   std::unordered_map<std::string, ZipEntry> entries_;
