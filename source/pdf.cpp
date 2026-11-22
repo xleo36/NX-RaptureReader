@@ -16,9 +16,19 @@ extern const fz_document_handler pdf_document_handler;
 #include <CoreGraphics/CoreGraphics.h>
 #endif
 
+namespace pdf {
+
+bool isAvailable() {
+#if defined(HAVE_MUPDF) || defined(__APPLE__)
+  return true;
+#else
+  return false;
+#endif
+}
+
+#if defined(HAVE_MUPDF) || defined(__APPLE__)
 namespace fs = std::filesystem;
 
-namespace pdf {
 namespace {
 
 std::string trim(const std::string &s) {
@@ -42,6 +52,7 @@ std::string cleanedStem(const std::string &path) {
 }
 
 } // namespace
+#endif
 
 #if defined(HAVE_MUPDF)
 

@@ -16,6 +16,9 @@ struct Metadata {
   std::size_t pageCount = 0;
 };
 
+/// Returns true when a PDF rendering backend is compiled in (MuPDF or CoreGraphics).
+bool isAvailable();
+
 /// Reads PDF title, author, and page count quickly.
 std::optional<Metadata> metadata(const std::string &path, std::string &err);
 

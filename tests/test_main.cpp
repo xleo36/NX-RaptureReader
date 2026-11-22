@@ -1670,6 +1670,12 @@ void testEpubTocNcxNavAndCover() {
 
 void testPdfLoadsSampleAndRenders() {
   std::string err;
+  if (!pdf::isAvailable()) {
+    auto doc = pdf::PdfReader::open("books/Sample_Handbook.pdf", err);
+    assert(!doc.has_value());
+    assert(!err.empty());
+    return;
+  }
   auto doc = pdf::PdfReader::open("books/Sample_Handbook.pdf", err);
   assert(doc.has_value());
   assert(doc->pageCount() == 2);
@@ -1722,7 +1728,11 @@ void testLibraryScansAllThreeFormats() {
     if (e.format == library::Format::Pdf &&
         e.path.find("Sample_Handbook.pdf") != std::string::npos) {
       hasPdf = true;
-      assert(e.author == "PDF (2 pages)");
+      if (pdf::isAvailable()) {
+        assert(e.author == "PDF (2 pages)");
+      } else {
+        assert(e.author == "PDF");
+      }
     }
   }
   assert(hasEpub && hasCbz && hasPdf);
@@ -1750,7 +1760,8 @@ void testUiCoversAndPdfHeadlessRender() {
   ui::CoverCache covers;
   int cw = 0, ch = 0;
   for (const auto &e : entries) {
-    if (e.format == library::Format::Cbz || e.format == library::Format::Pdf) {
+    if (e.format == library::Format::Cbz ||
+        (e.format == library::Format::Pdf && pdf::isAvailable())) {
       SDL_Texture *ct = covers.get(ren, e, cw, ch);
       assert(ct != nullptr && cw > 0 && ch > 0);
     }
@@ -1769,27 +1780,29 @@ void testUiCoversAndPdfHeadlessRender() {
                               libPx.data(), w * 4) == 0);
   assert(libPx[0] == 0 && libPx[1] == 0 && libPx[2] == 0);
 
-  // Render PDF zoomed with pan clamping & HUD clipping
-  std::string pdfErr;
-  auto doc = pdf::PdfReader::open("books/Sample_Handbook.pdf", pdfErr);
-  assert(doc.has_value());
-  ui::PageTextureCache pageCache;
-  int pw = 0, ph = 0;
-  SDL_Texture *pdfTex = pageCache.getPdf(ren, "books/Sample_Handbook.pdf",
-                                         *doc, w, h, pw, ph, pdfErr);
-  assert(pdfTex != nullptr && pw > 0 && ph > 0);
-  pageCache.prefetchPdf("books/Sample_Handbook.pdf", 1, *doc, w, h);
-  assert(pageCache.hasPrefetch && pageCache.prefetchIndex == 1);
+  if (pdf::isAvailable()) {
+    // Render PDF zoomed with pan clamping & HUD clipping
+    std::string pdfErr;
+    auto doc = pdf::PdfReader::open("books/Sample_Handbook.pdf", pdfErr);
+    assert(doc.has_value());
+    ui::PageTextureCache pageCache;
+    int pw = 0, ph = 0;
+    SDL_Texture *pdfTex = pageCache.getPdf(ren, "books/Sample_Handbook.pdf",
+                                           *doc, w, h, pw, ph, pdfErr);
+    assert(pdfTex != nullptr && pw > 0 && ph > 0);
+    pageCache.prefetchPdf("books/Sample_Handbook.pdf", 1, *doc, w, h);
+    assert(pageCache.hasPrefetch && pageCache.prefetchIndex == 1);
 
-  float panX = 0.0f, panY = -1000.0f;
-  SDL_SetRenderTarget(ren, target);
-  ui::drawVisualPage(ren, text, theme::get(0), doc->title(), doc->author(), 0,
-                     doc->pageCount(), doc->permille(), pdfTex, pw, ph, w, h,
-                     100, cbz::ZoomMode::Zoom150, panX, panY, nullptr, "5m",
-                     "100%", true, nullptr);
-  SDL_SetRenderTarget(ren, nullptr);
+    float panX = 0.0f, panY = -1000.0f;
+    SDL_SetRenderTarget(ren, target);
+    ui::drawVisualPage(ren, text, theme::get(0), doc->title(), doc->author(), 0,
+                       doc->pageCount(), doc->permille(), pdfTex, pw, ph, w, h,
+                       100, cbz::ZoomMode::Zoom150, panX, panY, nullptr, "5m",
+                       "100%", true, nullptr);
+    SDL_SetRenderTarget(ren, nullptr);
 
-  pageCache.clear();
+    pageCache.clear();
+  }
   covers.clear();
   SDL_DestroyTexture(target);
   SDL_DestroyRenderer(ren);
