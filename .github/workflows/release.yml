@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: release-nro-${{ github.ref }}
   cancel-in-progress: false
@@ -73,9 +77,8 @@ jobs:
             app_version="${tag#v}"
           fi
 
-          title="${title//$'\r'/ }"
-          title="${title//$'\n'/ }"
-          app_version="${app_version:0:15}"
+          title="$(printf '%s' "$title" | tr '\r\n' '  ')"
+          app_version="$(printf '%s' "$app_version" | cut -c1-15)"
 
           {
             echo "tag=${tag}"

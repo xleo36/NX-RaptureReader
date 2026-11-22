@@ -1,6 +1,12 @@
-# NX-RaptureReader
+<p align="center">
+  <img src="assets/icon.jpg" alt="NX-RaptureReader icon" width="160" />
+</p>
 
-A lightweight, OLED-native e-book, manga, comic, and PDF reader written in C++17 (`SDL2` + `FreeType2` + `zlib`) for **Nintendo Switch** and **macOS / PC**.
+<h1 align="center">NX-RaptureReader</h1>
+
+<p align="center">
+  A lightweight, OLED-native e-book, manga, comic, and PDF reader written in C++17 (<code>SDL2</code> + <code>FreeType2</code> + <code>zlib</code>) for <strong>Nintendo Switch</strong> and <strong>macOS / PC</strong>.
+</p>
 
 ## Features
 

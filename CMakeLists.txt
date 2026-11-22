@@ -92,6 +92,7 @@ if(NINTENDO_SWITCH OR SWITCH)
 
     nx_create_nro(${PROJECT_NAME}
         NACP "${CMAKE_CURRENT_BINARY_DIR}/NX-RaptureReader.nacp"
+        ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.jpg"
         ROMFS "${CMAKE_CURRENT_SOURCE_DIR}/romfs"
     )
 else()
