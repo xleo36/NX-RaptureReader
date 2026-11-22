@@ -1,0 +1,9 @@
+-std=c++17
+-Iinclude
+-Isource
+-isystem
+third_party
+-I/opt/homebrew/include
+-I/opt/homebrew/include/SDL2
+-I/opt/homebrew/opt/freetype/include/freetype2
+-I/opt/homebrew/opt/webp/include

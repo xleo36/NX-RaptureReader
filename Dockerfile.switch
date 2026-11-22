@@ -1,0 +1,17 @@
+FROM devkitpro/devkita64:latest
+
+RUN dkp-pacman -Sy --noconfirm --needed \
+        switch-sdl2 \
+        switch-freetype \
+        switch-zlib \
+        switch-libwebp \
+        switch-mupdf \
+        switch-cmake \
+        switch-pkg-config \
+        switch-tools \
+        libnx && \
+    dkp-pacman -Scc --noconfirm
+
+ENV PATH="/opt/devkitpro/portlibs/switch/bin:/opt/devkitpro/tools/bin:${PATH}"
+
+WORKDIR /work
