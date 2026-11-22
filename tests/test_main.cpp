@@ -23,6 +23,18 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <zlib.h>
+
+// Every check in this suite is an assert(); make sure none can be compiled
+// out (e.g. by -DNDEBUG) and silently turn the suite into a no-op.
+[[noreturn]] inline void testAssertionFailed(const char *expr, const char *file,
+                                             int line) {
+  std::cerr << file << ':' << line << ": assertion failed: " << expr << '\n';
+  std::abort();
+}
+#undef assert
+#define assert(expr)                                                           \
+  ((expr) ? static_cast<void>(0) : testAssertionFailed(#expr, __FILE__, __LINE__))
 
 namespace fs = std::filesystem;
 
@@ -2091,6 +2103,221 @@ void testAppControllerRoutingAndSwitchRtl() {
   fs::remove_all(progDir, ec);
 }
 
+/// Writes a one-entry ZIP ("e.bin") whose headers carry caller-chosen,
+/// possibly lying, sizes and local-header offset.
+void writeCraftedZip(const fs::path &path, uint16_t method,
+                     uint32_t declaredCompressed,
+                     uint32_t declaredUncompressed, const std::string &payload,
+                     uint32_t localOffset) {
+  const std::string name = "e.bin";
+  std::vector<uint8_t> out;
+  auto u16 = [&](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>(v >> 8));
+  };
+  auto u32 = [&](uint32_t v) {
+    u16(static_cast<uint16_t>(v & 0xFFFF));
+    u16(static_cast<uint16_t>(v >> 16));
+  };
+
+  u32(0x04034b50u); // local header
+  u16(20);
+  u16(0);
+  u16(method);
+  u16(0);
+  u16(0);
+  u32(0);
+  u32(declaredCompressed);
+  u32(declaredUncompressed);
+  u16(static_cast<uint16_t>(name.size()));
+  u16(0);
+  out.insert(out.end(), name.begin(), name.end());
+  out.insert(out.end(), payload.begin(), payload.end());
+
+  const uint32_t cdOffset = static_cast<uint32_t>(out.size());
+  u32(0x02014b50u); // central directory entry
+  u16(20);
+  u16(20);
+  u16(0);
+  u16(method);
+  u16(0);
+  u16(0);
+  u32(0);
+  u32(declaredCompressed);
+  u32(declaredUncompressed);
+  u16(static_cast<uint16_t>(name.size()));
+  u16(0);
+  u16(0);
+  u16(0);
+  u16(0);
+  u32(0);
+  u32(localOffset);
+  out.insert(out.end(), name.begin(), name.end());
+  const uint32_t cdSize = static_cast<uint32_t>(out.size()) - cdOffset;
+
+  u32(0x06054b50u); // end of central directory
+  u16(0);
+  u16(0);
+  u16(1);
+  u16(1);
+  u32(cdSize);
+  u32(cdOffset);
+  u16(0);
+
+  std::ofstream f(path, std::ios::binary);
+  f.write(reinterpret_cast<const char *>(out.data()),
+          static_cast<std::streamsize>(out.size()));
+}
+
+std::string rawDeflate(const std::string &in) {
+  z_stream zs{};
+  int rc = deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8,
+                        Z_DEFAULT_STRATEGY);
+  assert(rc == Z_OK);
+  std::string out(deflateBound(&zs, static_cast<uLong>(in.size())), '\0');
+  zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(in.data()));
+  zs.avail_in = static_cast<uInt>(in.size());
+  zs.next_out = reinterpret_cast<Bytef *>(out.data());
+  zs.avail_out = static_cast<uInt>(out.size());
+  rc = deflate(&zs, Z_FINISH);
+  assert(rc == Z_STREAM_END);
+  out.resize(zs.total_out);
+  deflateEnd(&zs);
+  return out;
+}
+
+void testZipRejectsHostileEntries() {
+  fs::path dir = tempDir("zip-hostile");
+  fs::create_directories(dir);
+
+  const std::string body(4096, 'A');
+  const std::string packed = rawDeflate(body);
+  const uint32_t n = static_cast<uint32_t>(packed.size());
+
+  struct Case {
+    const char *label;
+    uint16_t method;
+    uint32_t compressed;
+    uint32_t uncompressed;
+    std::string payload;
+    uint32_t localOffset;
+    bool expectOk;
+  };
+  const std::vector<Case> cases = {
+      {"valid deflate", 8, n, 4096, packed, 0, true},
+      {"valid stored", 0, 4096, 4096, body, 0, true},
+      {"deflate expands past declared size", 8, n, 16, packed, 0, false},
+      {"deflate smaller than declared size", 8, n, 8192, packed, 0, false},
+      {"declared compressed size beyond file", 0, 0x7FFFFFFFu, 4, "abcd", 0,
+       false},
+      {"declared size above entry cap", 8, n, 0xF0000000u, packed, 0, false},
+      {"stored size mismatch", 0, 4, 8, "abcd", 0, false},
+      {"local header offset beyond file", 0, 4, 4, "abcd", 0x7FFFFFF0u, false},
+      {"truncated deflate stream", 8, n / 2, 4096,
+       packed.substr(0, n / 2), 0, false},
+  };
+
+  for (const Case &c : cases) {
+    fs::path zpath = dir / "case.zip";
+    writeCraftedZip(zpath, c.method, c.compressed, c.uncompressed, c.payload,
+                    c.localOffset);
+
+    zip_util::ZipReader zip;
+    std::string err;
+    // The central directory itself is well formed; only the entry lies.
+    assert(zip.open(zpath.string(), err));
+
+    std::string text;
+    std::vector<uint8_t> bytes;
+    bool okText = zip.readEntry("e.bin", text, err);
+    std::string errBytes;
+    bool okBytes = zip.readEntryBytes("e.bin", bytes, errBytes);
+    if (okText != c.expectOk || okBytes != c.expectOk) {
+      std::cerr << "zip hostile case failed: " << c.label << '\n';
+    }
+    assert(okText == c.expectOk);
+    assert(okBytes == c.expectOk);
+    if (c.expectOk) {
+      assert(text == body && bytes.size() == body.size());
+    } else {
+      assert(!err.empty() && !errBytes.empty());
+    }
+  }
+
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+/// PNG signature + IHDR only: enough for a header probe to learn the
+/// dimensions, with no pixel data behind it.
+std::string pngHeaderOnly(uint32_t w, uint32_t h) {
+  std::string s("\x89PNG\r\n\x1a\n", 8);
+  auto be32 = [&](uint32_t v) {
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      s.push_back(static_cast<char>((v >> shift) & 0xFF));
+    }
+  };
+  be32(13);
+  s += "IHDR";
+  be32(w);
+  be32(h);
+  s.push_back(8); // bit depth
+  s.push_back(6); // RGBA
+  s.push_back(0);
+  s.push_back(0);
+  s.push_back(0);
+  be32(0); // CRC (not checked by the header probe)
+  // stb scans on to the first IDAT before it reports header info.
+  be32(0);
+  s += "IDAT";
+  return s;
+}
+
+void testCbzRejectsOversizedImages() {
+  // 10000x10000 = 100 MP (400 MB RGBA): far above MAX_IMAGE_PIXELS.
+  const std::string png = pngHeaderOnly(10000, 10000);
+  cbz::DecodedImage img;
+  std::string err;
+  assert(!cbz::decodeImageBytes(reinterpret_cast<const uint8_t *>(png.data()),
+                                png.size(), img, err));
+  assert(err.find("too large") != std::string::npos);
+  assert(img.rgba.empty() && img.width == 0 && img.height == 0);
+
+  // The same payload reached through a CBZ page must fail cleanly too.
+  fs::path dir = tempDir("cbz-oversized");
+  fs::create_directories(dir);
+  fs::path cbzPath = dir / "huge.cbz";
+  writeStoredZip(cbzPath, {{"page_01.png", png}});
+  std::string openErr;
+  auto comic = cbz::ComicReader::open(cbzPath.string(), openErr);
+  assert(comic.has_value());
+  std::string pageErr;
+  assert(!comic->decodePage(0, img, pageErr));
+  assert(pageErr.find("too large") != std::string::npos);
+
+  // Ordinary pages are unaffected.
+  auto sample = cbz::ComicReader::open("books/Cyber_Manga_Sample.cbz", openErr);
+  assert(sample.has_value());
+  assert(sample->decodePage(0, img, pageErr));
+  assert(img.width > 0 && img.height > 0);
+  assert(static_cast<uint64_t>(img.width) * static_cast<uint64_t>(img.height) <=
+         cbz::MAX_IMAGE_PIXELS);
+
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+void testEpubEntityEdgeCases() {
+  assert(epub::decodeEntities("&#x1F600;") == "\xF0\x9F\x98\x80");
+  assert(epub::decodeEntities("&#65;&#x42;") == "AB");
+  // Invalid scalar values stay literal instead of producing bad UTF-8.
+  assert(epub::decodeEntities("&#xD800;") == "&#xD800;"); // lone surrogate
+  assert(epub::decodeEntities("&#0;") == "&#0;");
+  assert(epub::decodeEntities("&#x110000;") == "&#x110000;"); // > U+10FFFF
+  assert(epub::decodeEntities("&#99999999999999999999;") ==
+         "&#99999999999999999999;");
+}
+
 } // namespace
 
 int main() {
@@ -2106,6 +2333,9 @@ int main() {
           testEpubNamespacedNcxCommentsAndBr);
   runTest("zip::streaming_reader_and_listing", testZipStreamingReaderAndListing);
   runTest("zip::zip64_archive_support", testZip64ArchiveSupport);
+  runTest("zip::rejects_hostile_entries", testZipRejectsHostileEntries);
+  runTest("cbz::rejects_oversized_images", testCbzRejectsOversizedImages);
+  runTest("epub::entity_edge_cases", testEpubEntityEdgeCases);
   runTest("cbz::natural_sort_and_sample_load", testCbzNaturalSortAndSampleLoad);
   runTest("cbz::webp_decode_and_zoom_pan", testCbzWebpDecodeAndZoomPan);
   runTest("cbz::has_overflow_check", testCbzHasOverflowCheck);

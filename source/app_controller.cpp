@@ -3,17 +3,20 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <new>
+#include <string>
 
 namespace fs = std::filesystem;
 
 namespace {
 
-std::optional<OpenBook> openBookFile(const std::string &path,
-                                     const std::string &progressDir,
-                                     std::string &err) {
+std::optional<OpenBook> openBookFileImpl(const std::string &path,
+                                         const std::string &progressDir,
+                                         std::string &err) {
   auto saved = progress::load(progressDir, path);
   if (library::isComicPath(path)) {
     auto comic = cbz::ComicReader::open(path, err);
@@ -48,6 +51,22 @@ std::optional<OpenBook> openBookFile(const std::string &path,
   }
   auto lastAnchor = r.anchor();
   return OpenBook{std::move(r), path, lastAnchor};
+}
+
+/// Opens any supported book. A malformed file can make a parser throw (most
+/// likely std::bad_alloc); report that as an ordinary open error instead of
+/// letting it take the whole app down.
+std::optional<OpenBook> openBookFile(const std::string &path,
+                                     const std::string &progressDir,
+                                     std::string &err) {
+  try {
+    return openBookFileImpl(path, progressDir, err);
+  } catch (const std::bad_alloc &) {
+    err = "Not enough memory to open this book";
+  } catch (const std::exception &e) {
+    err = std::string("Could not open book: ") + e.what();
+  }
+  return std::nullopt;
 }
 
 const char *openingHint(const OpenBook &book, const IConfig &config) {

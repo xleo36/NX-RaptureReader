@@ -79,7 +79,6 @@ if(NINTENDO_SWITCH OR SWITCH)
         mupdf-third
         jpeg
         ${FREETYPE_STATIC_LIBRARIES}
-        ${FREETYPE_STATIC_LIBRARIES}
         ${WEBP_STATIC_LIBRARIES}
         ${ZLIB_STATIC_LIBRARIES}
     )

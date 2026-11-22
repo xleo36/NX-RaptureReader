@@ -681,7 +681,11 @@ std::string decodeEntities(const std::string &s) {
             cp = static_cast<uint32_t>(std::stoul(ent.substr(1), nullptr, 10));
           }
         }
-        if (valid && cp > 0 && cp <= 0x10FFFFu) {
+        // The 10-character entity cap above keeps `cp` within 32 bits.
+        // Reject out-of-range values and UTF-16 surrogates, which are not
+        // valid Unicode scalar values.
+        if (valid && cp > 0 && cp <= 0x10FFFFu &&
+            !(cp >= 0xD800u && cp <= 0xDFFFu)) {
           appendUtf8(out, cp);
           decoded = true;
         }

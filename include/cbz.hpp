@@ -39,7 +39,13 @@ ZoomMode cycleZoom(ZoomMode mode);
 /// Case-insensitive natural numeric comparison (`page_2.jpg < page_10.jpg`).
 bool naturalLess(const std::string &a, const std::string &b);
 
+/// Largest decoded page (width x height) accepted, ~160 MB of RGBA. Images
+/// above it are rejected from their header alone, before any pixel buffer is
+/// allocated, so a tiny hostile file cannot exhaust a console's RAM.
+inline constexpr uint64_t MAX_IMAGE_PIXELS = 40'000'000;
+
 /// Decodes JPEG/PNG/BMP/GIF (via stb_image) or WebP (via libwebp) to RGBA32.
+/// Fails (without throwing) on corrupt, oversized, or out-of-memory input.
 bool decodeImageBytes(const uint8_t *data, std::size_t size, DecodedImage &out,
                       std::string &err);
 

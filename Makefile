@@ -10,9 +10,12 @@ HOST_FRAMEWORKS =
 endif
 
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -Isource -isystem third_party $(PKG_CFLAGS)
+# Emit .d files so editing a header rebuilds exactly the objects that use it.
+DEPFLAGS = -MMD -MP
 LDFLAGS = $(PKG_LIBS) $(HOST_FRAMEWORKS)
 
 BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
 BUILD_SWITCH_DIR = $(BUILD_DIR)/switch
 TARGET_PC = $(BUILD_DIR)/NX-RaptureReader-PC
 TARGET_TEST = $(BUILD_DIR)/NX-RaptureReader-Tests
@@ -26,28 +29,44 @@ CORE_SRCS = source/app_controller.cpp source/cbz.cpp source/epub.cpp \
             source/reader.cpp source/settings.cpp source/sleep_guard.cpp \
             source/text_renderer.cpp source/touch.cpp source/ui.cpp \
             source/zip_reader.cpp
-SRCS = source/main.cpp $(CORE_SRCS)
-TEST_SRCS = tests/test_main.cpp $(CORE_SRCS)
+CORE_OBJS = $(patsubst source/%.cpp,$(OBJ_DIR)/%.o,$(CORE_SRCS))
+MAIN_OBJ = $(OBJ_DIR)/main.o
+TEST_OBJ = $(OBJ_DIR)/test_main.o
 
-.PHONY: all pc run-pc test switch-image switch nxlink clean
+.PHONY: all pc run-pc test check-assets switch-image switch nxlink clean
 
 all: pc
 
 pc: $(TARGET_PC)
 
-$(TARGET_PC): $(SRCS)
+$(OBJ_DIR)/%.o: source/%.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TEST_OBJ): tests/test_main.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET_PC): $(MAIN_OBJ) $(CORE_OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
 run-pc: pc
 	./$(TARGET_PC)
 
-$(TARGET_TEST): $(TEST_SRCS)
+$(TARGET_TEST): $(TEST_OBJ) $(CORE_OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
 test: $(TARGET_TEST)
 	./$(TARGET_TEST)
+
+# The PC build reads fonts/books from assets/ and books/, the Switch build from
+# romfs/. Fail loudly if the two copies ever drift apart.
+check-assets:
+	@diff -rq assets/fonts romfs/fonts
+	@diff -rq books romfs/books
+	@echo "assets and romfs copies are in sync"
 
 switch-image:
 	docker build --platform $(DOCKER_PLATFORM) -t $(SWITCH_IMAGE) -f Dockerfile.switch .
@@ -65,3 +84,5 @@ nxlink: switch
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+-include $(wildcard $(OBJ_DIR)/*.d)
