@@ -1,0 +1,161 @@
+name: Release Switch NRO
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.1.0; defaults to build-<run_number>)
+        required: false
+        type: string
+      prerelease:
+        description: Mark manual release as prerelease
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-nro-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-nro:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      title: ${{ steps.meta.outputs.title }}
+      target_sha: ${{ steps.meta.outputs.target_sha }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      app_version: ${{ steps.meta.outputs.app_version }}
+    steps:
+      - name: Compute release metadata
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            tag="pr-${PR_NUMBER}"
+            title="PR #${PR_NUMBER}: ${PR_TITLE}"
+            target_sha="$MERGE_SHA"
+            prerelease="true"
+            app_version="0.1.0-pr.${PR_NUMBER}"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            tag="$REF_NAME"
+            title="NX-RaptureReader ${REF_NAME}"
+            target_sha="$COMMIT_SHA"
+            case "$tag" in
+              *-*) prerelease="true" ;;
+              *) prerelease="false" ;;
+            esac
+            app_version="${tag#v}"
+          else
+            tag="${INPUT_TAG:-build-${RUN_NUMBER}}"
+            title="NX-RaptureReader ${tag}"
+            target_sha="$COMMIT_SHA"
+            prerelease="${INPUT_PRERELEASE:-false}"
+            app_version="${tag#v}"
+          fi
+
+          title="${title//$'\r'/ }"
+          title="${title//$'\n'/ }"
+          app_version="${app_version:0:15}"
+
+          {
+            echo "tag=${tag}"
+            echo "target_sha=${target_sha}"
+            echo "prerelease=${prerelease}"
+            echo "app_version=${app_version}"
+            echo "title<<__GH_RELEASE_TITLE__"
+            printf '%s\n' "$title"
+            echo "__GH_RELEASE_TITLE__"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.target_sha }}
+
+      - name: Configure and build .nro
+        env:
+          APP_VERSION: ${{ steps.meta.outputs.app_version }}
+        run: |
+          export PATH="/opt/devkitpro/devkitA64/bin:/opt/devkitpro/portlibs/switch/bin:/opt/devkitpro/tools/bin:$PATH"
+          cmake -S . -B build/switch \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAPP_VERSION="$APP_VERSION"
+          cmake --build build/switch -j"$(nproc)"
+
+      - name: Verify .nro and compute checksum
+        run: |
+          ls -lh build/switch/NX-RaptureReader.nro
+          magic="$(dd if=build/switch/NX-RaptureReader.nro bs=1 skip=16 count=4 2>/dev/null)"
+          test "$magic" = "NRO0"
+          (cd build/switch && sha256sum NX-RaptureReader.nro > NX-RaptureReader.nro.sha256)
+          cat build/switch/NX-RaptureReader.nro.sha256
+
+      - name: Stage release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-nro-staging
+          path: |
+            build/switch/NX-RaptureReader.nro
+            build/switch/NX-RaptureReader.nro.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-release:
+    needs: build-nro
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download staged release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-nro-staging
+          path: release-assets
+
+      - name: Verify staged checksum
+        run: |
+          cd release-assets
+          sha256sum -c NX-RaptureReader.nro.sha256
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build-nro.outputs.tag }}
+          TARGET_SHA: ${{ needs.build-nro.outputs.target_sha }}
+          PRERELEASE: ${{ needs.build-nro.outputs.prerelease }}
+          TITLE: ${{ needs.build-nro.outputs.title }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber \
+              release-assets/NX-RaptureReader.nro \
+              release-assets/NX-RaptureReader.nro.sha256
+          else
+            args=(release create "$TAG" --target "$TARGET_SHA" --title "$TITLE" --generate-notes)
+            if [ "$PRERELEASE" = "true" ]; then
+              args+=(--prerelease)
+            fi
+            gh "${args[@]}" \
+              release-assets/NX-RaptureReader.nro \
+              release-assets/NX-RaptureReader.nro.sha256
+          fi

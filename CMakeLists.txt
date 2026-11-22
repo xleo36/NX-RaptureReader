@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(NX-RaptureReader LANGUAGES C CXX)
 
+set(APP_VERSION "0.1.0" CACHE STRING "Application version embedded in Switch NACP")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -86,7 +87,7 @@ if(NINTENDO_SWITCH OR SWITCH)
     nx_generate_nacp("${CMAKE_CURRENT_BINARY_DIR}/NX-RaptureReader.nacp"
         NAME "NX-RaptureReader"
         AUTHOR "xleo36"
-        VERSION "0.1.0"
+        VERSION "${APP_VERSION}"
     )
 
     nx_create_nro(${PROJECT_NAME}
