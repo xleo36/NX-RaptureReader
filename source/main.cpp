@@ -33,7 +33,6 @@ std::string findFontFile(const char *fileName) {
       std::string("romfs:/fonts/") + fileName,
 #endif
       std::string("assets/fonts/") + fileName,
-      std::string("romfs/fonts/") + fileName,
   };
   std::error_code ec;
   for (const std::string &p : candidates) {

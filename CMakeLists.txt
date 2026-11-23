@@ -90,10 +90,20 @@ if(NINTENDO_SWITCH OR SWITCH)
         VERSION "${APP_VERSION}"
     )
 
+    set(STAGED_ROMFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/romfs")
+    file(GLOB_RECURSE _ROMFS_INPUTS CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/*"
+        "${CMAKE_CURRENT_SOURCE_DIR}/books/*"
+    )
+    file(REMOVE_RECURSE "${STAGED_ROMFS_DIR}")
+    file(MAKE_DIRECTORY "${STAGED_ROMFS_DIR}")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" DESTINATION "${STAGED_ROMFS_DIR}")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/books" DESTINATION "${STAGED_ROMFS_DIR}")
+
     nx_create_nro(${PROJECT_NAME}
         NACP "${CMAKE_CURRENT_BINARY_DIR}/NX-RaptureReader.nacp"
         ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.jpg"
-        ROMFS "${CMAKE_CURRENT_SOURCE_DIR}/romfs"
+        ROMFS "${STAGED_ROMFS_DIR}"
     )
 else()
     find_package(SDL2 REQUIRED)

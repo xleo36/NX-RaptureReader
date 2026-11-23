@@ -55,10 +55,9 @@
 Requires `SDL2`, `FreeType2`, `zlib`, and `libwebp` (`brew install sdl2 freetype zlib webp` on macOS; `sudo apt install build-essential pkg-config libsdl2-dev libfreetype-dev zlib1g-dev libwebp-dev` on Debian/Ubuntu).
 
 ```bash
-make test          # Compile with -Wall -Wextra and run unit tests
-make pc            # Build build/NX-RaptureReader-PC
-make run-pc        # Build and launch
-make check-assets  # Verify assets/ + books/ match their romfs/ copies
+make test    # Compile with -Wall -Wextra and run unit tests
+make pc      # Build build/NX-RaptureReader-PC
+make run-pc  # Build and launch
 ```
 
 > **PDF support** is available on Nintendo Switch (`switch-mupdf`) and macOS (`CoreGraphics`). On Linux/other desktops the app builds and runs, but `.pdf` files are listed but cannot be opened.
@@ -73,7 +72,7 @@ make switch                        # Produce build/NX-RaptureReader.nro
 make nxlink SWITCH_IP=192.168.x.x  # Push over Wi-Fi to Homebrew Menu NetLoader
 ```
 
-Copy `build/NX-RaptureReader.nro` to `sdmc:/switch/NX-RaptureReader/NX-RaptureReader.nro` and place your `.epub`, `.cbz`, or `.pdf` files in `sdmc:/switch/NX-RaptureReader/books/`.
+Copy `build/NX-RaptureReader.nro` to `sdmc:/switch/NX-RaptureReader/NX-RaptureReader.nro` and place your `.epub`, `.cbz`, or `.pdf` files in `sdmc:/switch/NX-RaptureReader/books/` (created automatically on first launch) or directly inside `sdmc:/switch/NX-RaptureReader/` (subfolders are scanned recursively).
 
 ## License
 

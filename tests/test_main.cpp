@@ -2318,6 +2318,47 @@ void testEpubEntityEdgeCases() {
          "&#99999999999999999999;");
 }
 
+void testLibraryNestedDirsDedupAndHidden() {
+  fs::path dir = tempDir("lib-nested");
+  fs::path progDir = tempDir("lib-nested-prog");
+  fs::create_directories(dir / "books" / "Series");
+  fs::create_directories(dir / ".hidden");
+  fs::create_directories(dir / "__MACOSX");
+
+  const fs::path sample = "books/Alice_in_Wonderland.epub";
+  fs::copy_file(sample, dir / "root_book.epub");
+  fs::copy_file(sample, dir / "books" / "nested_book.epub");
+  fs::copy_file(sample, dir / "books" / "Series" / "deep_book.epub");
+  // macOS AppleDouble & hidden junk that often live alongside FAT32 SD files.
+  fs::copy_file(sample, dir / "._root_book.epub");
+  fs::copy_file(sample, dir / ".hidden" / "secret.epub");
+  fs::copy_file(sample, dir / "__MACOSX" / "ghost.epub");
+
+  // Overlapping sources (`dir/books` and `dir`) must deduplicate cleanly.
+  auto entries = library::scan({(dir / "books").string(), dir.string()},
+                               progDir.string());
+  assert(entries.size() == 3);
+  bool hasRoot = false, hasNested = false, hasDeep = false;
+  for (const auto &e : entries) {
+    assert(e.format == library::Format::Epub);
+    assert(e.path.find("._") == std::string::npos);
+    assert(e.path.find(".hidden") == std::string::npos);
+    assert(e.path.find("__MACOSX") == std::string::npos);
+    if (e.path.find("root_book.epub") != std::string::npos) {
+      hasRoot = true;
+    } else if (e.path.find("nested_book.epub") != std::string::npos) {
+      hasNested = true;
+    } else if (e.path.find("deep_book.epub") != std::string::npos) {
+      hasDeep = true;
+    }
+  }
+  assert(hasRoot && hasNested && hasDeep);
+
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::remove_all(progDir, ec);
+}
+
 } // namespace
 
 int main() {
@@ -2352,6 +2393,8 @@ int main() {
   runTest("settings::font_limits", testSettingsFontLimits);
   runTest("library::scan", testLibraryScan);
   runTest("library::scans_all_three_formats", testLibraryScansAllThreeFormats);
+  runTest("library::nested_dirs_dedup_and_skips_hidden",
+          testLibraryNestedDirsDedupAndHidden);
   runTest("text::kerning_and_styled_metrics", testTextKerningAndStyledMetrics);
   runTest("text::glyph_cache_bounded_and_invalidate",
           testTextGlyphCacheBoundedAndInvalidate);

@@ -58,6 +58,39 @@ std::string trim(const std::string &s) {
   return s.substr(start, end - start);
 }
 
+bool isIgnoredEntryName(const std::string &name) {
+  return name.empty() || name[0] == '.' || name == "__MACOSX";
+}
+
+constexpr int MAX_SCAN_DEPTH = 4;
+
+void collectBooksFromDir(const fs::path &dir, int depth,
+                         std::vector<std::string> &paths) {
+  std::error_code dirEc;
+  fs::directory_iterator it(dir, dirEc);
+  if (dirEc) {
+    return;
+  }
+  for (fs::directory_iterator end; it != end; it.increment(dirEc)) {
+    if (dirEc) {
+      break;
+    }
+    const fs::path &entryPath = it->path();
+    const std::string name = entryPath.filename().string();
+    if (isIgnoredEntryName(name)) {
+      continue;
+    }
+    std::error_code itemEc;
+    if (fs::is_directory(entryPath, itemEc) && !itemEc &&
+        depth < MAX_SCAN_DEPTH) {
+      collectBooksFromDir(entryPath, depth + 1, paths);
+    } else if (fs::is_regular_file(entryPath, itemEc) && !itemEc &&
+               isSupportedBook(entryPath)) {
+      paths.push_back(entryPath.lexically_normal().string());
+    }
+  }
+}
+
 } // namespace
 
 bool isComicPath(const std::string &path) { return isCbz(fs::path(path)); }
@@ -65,7 +98,8 @@ bool isPdfPath(const std::string &path) { return isPdf(fs::path(path)); }
 
 std::vector<std::string> defaultSources() {
 #ifdef __SWITCH__
-  return {"sdmc:/switch/NX-RaptureReader/books", "romfs:/books", "books"};
+  return {"sdmc:/switch/NX-RaptureReader/books", "sdmc:/switch/NX-RaptureReader",
+          "romfs:/books"};
 #else
   return {"books", (fs::path(progress::defaultDir()) / "books").string()};
 #endif
@@ -74,20 +108,14 @@ std::vector<std::string> defaultSources() {
 std::vector<Entry> scan(const std::vector<std::string> &sources,
                         const std::string &progressDir) {
   std::vector<std::string> paths;
-  std::error_code ec;
 
   for (const auto &src : sources) {
     fs::path sp(src);
-    if (fs::is_directory(sp, ec)) {
-      for (const auto &item : fs::directory_iterator(sp, ec)) {
-        if (ec) {
-          break;
-        }
-        if (item.is_regular_file(ec) && isSupportedBook(item.path())) {
-          paths.push_back(item.path().lexically_normal().string());
-        }
-      }
-    } else if (fs::is_regular_file(sp, ec) && isSupportedBook(sp)) {
+    std::error_code srcEc;
+    if (fs::is_directory(sp, srcEc) && !srcEc) {
+      collectBooksFromDir(sp, 0, paths);
+    } else if (fs::is_regular_file(sp, srcEc) && !srcEc &&
+               isSupportedBook(sp)) {
       paths.push_back(sp.lexically_normal().string());
     }
   }

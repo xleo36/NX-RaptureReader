@@ -33,7 +33,7 @@ CORE_OBJS = $(patsubst source/%.cpp,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 MAIN_OBJ = $(OBJ_DIR)/main.o
 TEST_OBJ = $(OBJ_DIR)/test_main.o
 
-.PHONY: all pc run-pc test check-assets switch-image switch nxlink clean
+.PHONY: all pc run-pc test switch-image switch nxlink clean
 
 all: pc
 
@@ -60,13 +60,6 @@ $(TARGET_TEST): $(TEST_OBJ) $(CORE_OBJS)
 
 test: $(TARGET_TEST)
 	./$(TARGET_TEST)
-
-# The PC build reads fonts/books from assets/ and books/, the Switch build from
-# romfs/. Fail loudly if the two copies ever drift apart.
-check-assets:
-	@diff -rq assets/fonts romfs/fonts
-	@diff -rq books romfs/books
-	@echo "assets and romfs copies are in sync"
 
 switch-image:
 	docker build --platform $(DOCKER_PLATFORM) -t $(SWITCH_IMAGE) -f Dockerfile.switch .
