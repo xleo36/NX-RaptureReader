@@ -39,7 +39,7 @@ SOFTWARE.
 
 ### Lato (`Lato-Regular.ttf`, `Lato-RegularItalic.ttf`)
 
-Located in [assets/fonts/](assets/fonts/) and [romfs/fonts/](romfs/fonts/).
+Located in [assets/fonts/](assets/fonts/) (also staged into the Switch RomFS at build time).
 
 - **Copyright:** Copyright (c) 2010-2013 by tyPoland Lukasz Dziedzic (`http://www.typoland.com/`) with Reserved Font Name `"Lato"`.
 - **License:** SIL Open Font License, Version 1.1 ([assets/fonts/OFL.txt](assets/fonts/OFL.txt))

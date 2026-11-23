@@ -149,6 +149,12 @@ void AppController::init(const IConfig &config,
                          const std::string &customProgressDir) {
   progressDir = customProgressDir.empty() ? progress::defaultDir()
                                           : customProgressDir;
+#ifdef __SWITCH__
+  if (customProgressDir.empty()) {
+    std::error_code mkEc;
+    fs::create_directories(fs::path(progressDir) / "books", mkEc);
+  }
+#endif
   settings = Settings::load(progressDir);
 
   sources = cliPaths.empty() ? library::defaultSources() : cliPaths;
